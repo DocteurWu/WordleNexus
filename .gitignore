@@ -1,0 +1,13 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Logs
+logs/
+
+# Cache
+data/pattern_cache.pkl.gz
+
+# Config
+config.ini
