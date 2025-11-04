@@ -61,11 +61,23 @@ pip install google-generativeai Pillow
 
 ### API Configuration
 1. Get a Google Gemini API key from [Google AI Studio](https://aistudio.google.com/)
-2. Update `config.ini`:
+2. Create a file named `config.ini` in the root directory of the project.
+3. Add the following content to `config.ini`, replacing `"your_api_key_here"` with your actual API key:
 ```ini
 [API]
 GEMINI_API_KEY = "your_api_key_here"
 ```
+
+## How to Run
+
+To get started quickly, follow these steps:
+
+1.  **Install dependencies**: Ensure you have Python 3.6+ and the required packages installed.
+2.  **Configure API Key**: Set up your Google Gemini API key in `config.ini` as described above.
+3.  **Launch GUI**: Run the graphical interface using `python run_gui.py`.
+4.  **Explore Modes**: Choose between Community Solver, Personal Solver, or use AI-powered screenshot analysis.
+
+
 
 ## Usage
 
@@ -102,6 +114,16 @@ python solver.py --opening
 # Statistics
 python solver.py --stats
 ```
+
+## Development
+
+To set up a development environment, consider the following:
+
+-   **Code Structure**: The project is organized into `run_gui.py` (GUI launcher), `wordle_gui.py` (graphical interface), `solver.py` (core logic), and `gemini_analyzer.py` (AI integration).
+-   **Logging**: Detailed logs are generated in the `logs/` directory, which can be helpful for debugging and performance analysis.
+-   **Testing**: (Add details about testing if available, otherwise mention future plans or how to manually test)
+
+
 
 ## Technical Details
 
