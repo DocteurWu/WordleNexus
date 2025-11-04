@@ -25,6 +25,12 @@ class WordleGUI:
 
         self.COLORS = {'green': '#6aaa64', 'yellow': '#c9b458', 'gray': '#787c7e'}
         self.players_data = []
+        self.lax_candidates = set()
+        self.strict_candidates = set()
+        self.live_remaining_candidates = []
+        self.last_players_grids = []
+        self.is_strict_analysis_running = False
+        self.stop_strict_analysis_event = threading.Event()
 
         self.setup_styles()
         self.setup_ui()
@@ -109,7 +115,10 @@ class WordleGUI:
         self.personal_submit_button = ttk.Button(action_frame, text="Submit Attempt", command=self.submit_personal_attempt, state=tk.DISABLED)
         self.personal_submit_button.pack(side=tk.LEFT)
         ttk.Button(action_frame, text="Reset", command=self.reset_personal_solver).pack(side=tk.LEFT, padx=5)
-        ttk.Button(action_frame, text="Pre-filter with Community", command=self.prefilter_with_community).pack(side=tk.LEFT, padx=5)
+        self.prefilter_community_button = ttk.Button(action_frame, text="Pre-filter with Community", command=self.prefilter_with_community)
+        self.prefilter_community_button.pack(side=tk.LEFT, padx=5)
+        self.prefilter_live_button = ttk.Button(action_frame, text="Pre-filter with Live Results", command=self.prefilter_with_live_results, state=tk.DISABLED)
+        self.prefilter_live_button.pack(side=tk.LEFT, padx=5)
 
         # Info display
         info_frame = ttk.Frame(parent)
@@ -133,6 +142,10 @@ class WordleGUI:
 
     def submit_personal_attempt(self):
         if not self.personal_solver: return
+
+        if self.is_strict_analysis_running:
+            messagebox.showinfo("Analysis Running", "A strict analysis is currently running. Please stop it before submitting a new attempt.")
+            return
 
         guess = self.personal_word_var.get().strip().lower()
         if len(guess) != 5 or not guess.isalpha():
@@ -199,17 +212,36 @@ class WordleGUI:
         controls_frame = ttk.Frame(parent)
         controls_frame.grid(row=2, column=0, columnspan=2, pady=10, sticky=tk.EW)
         ttk.Button(controls_frame, text="Add Player", command=self.add_player).pack(side=tk.LEFT, padx=5)
-        self.solve_button = ttk.Button(controls_frame, text="Solve Community", command=self.solve_community, state=tk.DISABLED)
+        self.solve_button = ttk.Button(controls_frame, text="Lax Analysis", command=self.solve_lax_community, state=tk.DISABLED)
         self.solve_button.pack(side=tk.LEFT, padx=5)
+        self.strict_solve_button = ttk.Button(controls_frame, text="Strict Analysis", command=self.solve_strict_community, state=tk.DISABLED)
+        self.strict_solve_button.pack(side=tk.LEFT, padx=5)
+        self.stop_analysis_button = ttk.Button(controls_frame, text="Stop Analysis", command=self.stop_strict_analysis, state=tk.DISABLED)
+        self.stop_analysis_button.pack(side=tk.LEFT, padx=5)
         ttk.Button(controls_frame, text="Import Screenshots", command=self.import_screenshots).pack(side=tk.LEFT, padx=5)
         ttk.Button(controls_frame, text="Clear All", command=self.clear_community).pack(side=tk.LEFT, padx=5)
 
+        # Live Results
+        self.live_results_frame = ttk.LabelFrame(parent, text="Live Remaining Candidates")
+        self.live_results_frame.columnconfigure(0, weight=1)
+        self.community_live_results_text = tk.Text(self.live_results_frame, height=5, font=('Courier', 9), state=tk.DISABLED, wrap=tk.WORD)
+        self.community_live_results_text.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+
+        # Live Words
+        self.live_words_frame = ttk.LabelFrame(parent, text="Live Processed Words")
+        self.live_words_frame.columnconfigure(0, weight=1)
+        self.community_live_words_text_widget = tk.Text(self.live_words_frame, height=5, font=('Courier', 9), state=tk.DISABLED, wrap=tk.WORD)
+        self.community_live_words_text_widget.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+
         # Results
-        results_frame = ttk.Frame(parent)
-        results_frame.grid(row=3, column=0, columnspan=2, sticky=tk.EW)
-        results_frame.columnconfigure(0, weight=1)
-        self.community_results_text = tk.Text(results_frame, height=12, font=('Courier', 9), state=tk.DISABLED, wrap=tk.NONE)
-        self.community_results_text.pack(fill=tk.BOTH, expand=True)
+        self.results_frame = ttk.LabelFrame(parent, text="Final Analysis")
+        self.results_frame.columnconfigure(0, weight=1)
+        self.community_results_text = tk.Text(self.results_frame, height=12, font=('Courier', 9), state=tk.DISABLED, wrap=tk.NONE)
+        self.community_results_text.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+
+        self.live_results_frame.grid_remove()
+        self.live_words_frame.grid_remove()
+        self.results_frame.grid(row=3, column=0, columnspan=2, sticky=tk.EW)
 
         self.add_player()
 
@@ -285,38 +317,111 @@ class WordleGUI:
         for i, p_data in enumerate(self.players_data):
             p_data['frame'].config(text=f"Player {i + 1}")
 
-    def solve_community(self):
+    def solve_lax_community(self):
         if not self.solver: return
+        self.live_results_frame.grid_remove()
+        self.live_words_frame.grid_remove()
+        self.results_frame.grid(row=3, column=0, columnspan=2, sticky=tk.EW)
+        self.last_players_grids = self._get_players_grids()
+        if not self.last_players_grids:
+            messagebox.showinfo("No Data", "No community grids were entered.")
+            return
+        self.status_var.set("🔄 Running Lax Analysis...")
+        self.solve_button.config(state=tk.DISABLED)
+        self.strict_solve_button.config(state=tk.DISABLED)
+        self.prefilter_live_button.config(state=tk.DISABLED)
+        self.stop_analysis_button.config(state=tk.DISABLED)
+        threading.Thread(target=self._run_solve_thread, args=(self.last_players_grids, [], False), daemon=True).start()
 
+    def solve_strict_community(self):
+        if not self.solver or not self.lax_candidates:
+            messagebox.showwarning("No Lax Candidates", "Please run Lax Analysis first.")
+            return
+        self.live_results_frame.grid(row=3, column=0, columnspan=2, sticky=tk.EW, pady=5)
+        self.live_words_frame.grid(row=4, column=0, columnspan=2, sticky=tk.EW, pady=5)
+        self.results_frame.grid(row=5, column=0, columnspan=2, sticky=tk.EW)
+        self.status_var.set("🔄 Running Strict Analysis...")
+        self.solve_button.config(state=tk.DISABLED)
+        self.strict_solve_button.config(state=tk.DISABLED)
+        self.prefilter_live_button.config(state=tk.NORMAL)
+        self.stop_analysis_button.config(state=tk.NORMAL)
+        threading.Thread(target=self._run_solve_thread, args=(self.last_players_grids, self.personal_solver.attempts, True, self.personal_solver.remaining_candidates), daemon=True).start()
+
+    def stop_strict_analysis(self):
+        if self.is_strict_analysis_running:
+            self.stop_strict_analysis_event.set()
+
+    def _get_players_grids(self):
         players_grids = []
         for p_data in self.players_data:
             grid = [att['pattern_var'].get().strip().upper() for att in p_data['attempts'] if att['pattern_var'].get().strip()]
             if grid:
-                # Basic validation
                 if any(len(p) != 5 for p in grid):
                     messagebox.showerror("Invalid Pattern", f"A pattern for Player {self.players_data.index(p_data)+1} is not 5 characters long.")
-                    return
+                    return None
                 players_grids.append(self.personal_solver.parse_pattern_input("\n".join(grid)).split('\n'))
+        return players_grids
 
-        if not players_grids:
-            messagebox.showinfo("No Data", "No community grids were entered.")
-            return
+    def _run_solve_thread(self, players_grids, personal_attempts, run_strict, candidates_to_check=None):
+        self.live_remaining_candidates = sorted(list(candidates_to_check)) if candidates_to_check else []
+        if run_strict:
+            self.is_strict_analysis_running = True
+            self.stop_strict_analysis_event.clear()
+        try:
+            self.root.after(0, lambda: self._update_text_widget(self.community_live_results_text, ""))
+            self.root.after(0, lambda: self._update_text_widget(self.community_results_text, ""))
+            self.root.after(0, lambda: self._update_text_widget(self.community_live_words_text_widget, ""))
+            def progress_handler(update):
+                if self.stop_strict_analysis_event.is_set():
+                    raise InterruptedError("Analysis stopped by user.")
 
-        self.status_var.set("🔄 Solving community grids...")
-        self.solve_button.config(state=tk.DISABLED)
-        threading.Thread(target=self._run_solve_thread, args=(players_grids,), daemon=True).start()
+                if update['type'] == 'player_start':
+                    status_msg = f"🔄 Strict (Player {update['player_idx']}/{update['num_players']}): {update['num_candidates']} words..."
+                    self.root.after(0, lambda: self.status_var.set(status_msg))
+                    self.root.after(0, lambda: self._update_text_widget(self.community_live_results_text, ", ".join(self.live_remaining_candidates)))
+                elif update['type'] == 'player_progress':
+                    eta_str = f"{update['eta_m']}m {update['eta_s']}s"
+                    status_msg = f"🔄 Strict (Player {update['player_idx']}): {update['current']}/{update['total']} ({update['pct']:.1f}%) | ETA: {eta_str}"
+                    self.root.after(0, lambda: self.status_var.set(status_msg))
+                elif update['type'] == 'player_end':
+                    live_text = f"Player {update['player_idx']} done. {update['num_candidates_after']} words remaining."
+                    self.root.after(0, lambda: self._update_text_widget(self.community_live_results_text, live_text))
+                elif update['type'] == 'word_validated':
+                    self.root.after(0, lambda: self._update_text_widget(self.community_live_words_text_widget, f"Checking: {update['word'].upper()}"))
+                    if not update['is_valid']:
+                        if update['word'] in self.live_remaining_candidates:
+                            self.live_remaining_candidates.remove(update['word'])
+                            self.root.after(0, lambda: self._update_text_widget(self.community_live_results_text, ", ".join(self.live_remaining_candidates)))
 
-    def _run_solve_thread(self, players_grids):
-        results = self.solver.solve(players_grids, [])
-        self.root.after(0, lambda: self._update_text_widget(self.community_results_text, results))
-        self.root.after(0, lambda: self.status_var.set("✅ Community analysis complete."))
-        self.root.after(0, lambda: self.solve_button.config(state=tk.NORMAL))
 
-    def clear_community(self):
-        for i in range(len(self.players_data) - 1, -1, -1):
-            self.remove_player(i)
-        self.add_player()
-        self._update_text_widget(self.community_results_text, "")
+            results, candidates = self.solver.solve(players_grids, personal_attempts, run_strict=run_strict, candidates_to_check=candidates_to_check, progress_callback=progress_handler, stop_event=self.stop_strict_analysis_event)
+            
+            if not run_strict:
+                self.lax_candidates = candidates
+                self.personal_solver.remaining_candidates = candidates
+                self.root.after(0, lambda: self.strict_solve_button.config(state=tk.NORMAL))
+            else:
+                self.strict_candidates = candidates
+
+            self.root.after(0, lambda: self._update_text_widget(self.community_results_text, results))
+            self.root.after(0, lambda: self.status_var.set("✅ Analysis complete."))
+            if run_strict:
+                 self.root.after(0, lambda: self._update_text_widget(self.community_live_results_text, "All strict validations passed."))
+
+        except InterruptedError:
+            self.root.after(0, lambda: self.status_var.set("🛑 Analysis stopped."))
+        except Exception as e:
+            logger.error(f"Error in solve thread: {e}", exc_info=True)
+            self.root.after(0, lambda: messagebox.showerror("Error", f"An error occurred during analysis:\n{e}"))
+            self.root.after(0, lambda: self.status_var.set("❌ Analysis failed."))
+        finally:
+            if run_strict:
+                self.is_strict_analysis_running = False
+            self.root.after(0, lambda: self.solve_button.config(state=tk.NORMAL))
+            if run_strict:
+                self.root.after(0, lambda: self.strict_solve_button.config(state=tk.NORMAL))
+            self.root.after(0, lambda: self.prefilter_live_button.config(state=tk.DISABLED))
+            self.root.after(0, lambda: self.stop_analysis_button.config(state=tk.DISABLED))
 
     def suggest_openers(self):
         if not self.solver: return
@@ -328,105 +433,95 @@ class WordleGUI:
         if not self.solver: return
         messagebox.showinfo("Performance Statistics", self.solver.get_statistics())
 
+    def clear_community(self):
+        self.live_results_frame.grid_remove()
+        self.live_words_frame.grid_remove()
+        self.results_frame.grid(row=3, column=0, columnspan=2, sticky=tk.EW)
+        for i in range(len(self.players_data) - 1, -1, -1):
+            self.remove_player(i)
+        self.add_player()
+        self._update_text_widget(self.community_results_text, "")
+
+    def import_screenshots(self):
+        if not self.solver: return
+        filepaths = filedialog.askopenfilenames(
+            title="Select Wordle Screenshot(s)",
+            filetypes=[("Image Files", "*.png *.jpg *.jpeg")]
+        )
+        if not filepaths:
+            return
+
+        self.status_var.set(f"🔄 Analyzing {len(filepaths)} screenshot(s)...")
+        self.root.update_idletasks()
+
+        try:
+            all_grids = analyze_wordle_screenshots(list(filepaths))
+            self.clear_community()
+            for i, grid in enumerate(all_grids):
+                if i > 0: self.add_player()
+                for j, pattern in enumerate(grid):
+                    if j > 0: self.add_community_attempt(i)
+                    self.players_data[i]['attempts'][j]['pattern_var'].set(pattern)
+            self.status_var.set(f"✅ Imported {len(all_grids)} grids from {len(filepaths)} image(s).")
+        except Exception as e:
+            logger.error(f"Screenshot analysis failed: {e}", exc_info=True)
+            messagebox.showerror("Analysis Error", f"Could not analyze screenshots: {e}")
+            self.status_var.set("❌ Screenshot analysis failed.")
+
     def prefilter_with_community(self):
-        if not self.solver or not self.personal_solver:
-            messagebox.showwarning("Solver Not Ready", "The solver is still initializing.")
+        if not self.personal_solver: return
+
+        candidates_to_use = None
+        if self.strict_candidates:
+            candidates_to_use = self.strict_candidates
+        elif self.lax_candidates:
+            candidates_to_use = self.lax_candidates
+        else:
+            messagebox.showwarning("No Community Data", "Please run a 'Lax Analysis' or 'Strict Analysis' on the community data first to generate a candidate list.")
             return
-
-        players_grids = []
-        for p_data in self.players_data:
-            grid = [att['pattern_var'].get().strip().upper() for att in p_data['attempts'] if att['pattern_var'].get().strip()]
-            if grid:
-                if any(len(p) != 5 for p in grid):
-                    messagebox.showerror("Invalid Pattern", f"A pattern for Player {self.players_data.index(p_data)+1} is not 5 characters long.")
-                    return
-                emoji_grid = self.personal_solver.parse_pattern_input("\n".join(grid)).split('\n')
-                players_grids.append(emoji_grid)
-
-        if not players_grids:
-            messagebox.showinfo("No Data", "No community grids were entered to pre-filter with.")
-            return
-
-        self.status_var.set("⏳ Pre-filtering with community data...")
         
-        common_candidates = set(self.solver.answers)
-        for player_grid in players_grids:
-            common_candidates = {
-                secret for secret in common_candidates
-                if _player_possible_sequence_lax(secret, tuple(player_grid))
-            }
-            if not common_candidates:
-                break
-        
-        self.personal_solver.reset()
-        self.personal_solver.remaining_candidates = common_candidates
-        
+        self.personal_solver.remaining_candidates = candidates_to_use
         remaining_count = len(self.personal_solver.remaining_candidates)
-        self.personal_info_var.set(f"Pre-filtered with community data. {remaining_count} candidates remaining.")
-
-        suggestions = self.personal_solver.get_best_next_guess(5)
-        sugg_text = "\n".join([f"{i}. {word.upper():<8} (Score: {score:.3f})" for i, (word, score) in enumerate(suggestions, 1)])
-        self._update_text_widget(self.personal_suggestions_text, sugg_text)
-
+        
+        self.personal_info_var.set(f"Prefiltered with community results. {remaining_count} candidates remaining.")
+        
+        # Update remaining words display
         remaining_words = self.personal_solver.get_remaining_words(100)
         rem_text = ", ".join(w.upper() for w in remaining_words)
         if remaining_count > 100:
             rem_text += "..."
         self._update_text_widget(self.personal_remaining_text, rem_text)
+
+        # Update suggestions
+        suggestions = self.personal_solver.get_best_next_guess(5)
+        sugg_text = "\n".join([f"{i}. {word.upper():<8} (Score: {score:.3f})" for i, (word, score) in enumerate(suggestions, 1)])
+        self._update_text_widget(self.personal_suggestions_text, sugg_text)
         
-        self.status_var.set("✅ Pre-filtering complete. Personal solver is ready.")
-        messagebox.showinfo("Pre-filter Complete", f"The personal solver has been updated with the {remaining_count} words matching the community grids.")
+        messagebox.showinfo("Prefilter Complete", f"Personal solver's word list has been updated with the {remaining_count} candidates from the community's analysis.")
 
-    def import_screenshots(self):
-        filepaths = filedialog.askopenfilenames(title="Select Screenshots", filetypes=[("Images", "*.png *.jpg *.jpeg"), ("All files", "*.*")])
-        if not filepaths:
+    def prefilter_with_live_results(self):
+        if not self.personal_solver or not self.live_remaining_candidates:
+            messagebox.showwarning("No Live Data", "No live results available to prefilter.")
             return
+        
+        self.personal_solver.remaining_candidates = set(self.live_remaining_candidates)
+        remaining_count = len(self.personal_solver.remaining_candidates)
+        
+        self.personal_info_var.set(f"Prefiltered with live results. {remaining_count} candidates remaining.")
+        
+        # Update remaining words display
+        remaining_words = self.personal_solver.get_remaining_words(100)
+        rem_text = ", ".join(w.upper() for w in remaining_words)
+        if remaining_count > 100:
+            rem_text += "..."
+        self._update_text_widget(self.personal_remaining_text, rem_text)
 
-        self.status_var.set("🤖 Analyzing images with AI...")
-        self.root.update_idletasks()
-        threading.Thread(target=self._run_screenshot_analysis, args=(list(filepaths),), daemon=True).start()
-
-    def _run_screenshot_analysis(self, filepaths):
-        try:
-            players_data = analyze_wordle_screenshots(filepaths)
-            self.root.after(0, self.populate_gui_from_ai, players_data)
-        except Exception as e:
-            logger.error(f"Screenshot analysis failed: {e}", exc_info=True)
-            self.root.after(0, messagebox.showerror, "Analysis Error", f"Screenshot analysis failed: {e}")
-            self.root.after(0, self.status_var.set, "❌ AI analysis failed.")
-
-    def populate_gui_from_ai(self, players_data):
-        if players_data is None:
-            messagebox.showerror("Error", "Could not extract any data from the images.")
-            self.status_var.set("✅ Ready")
-            return
-
-        self.clear_community()
-
-        if self.players_data:
-            self.remove_player(0)
-
-        for player_data_from_ai in players_data:
-            if not player_data_from_ai.get("patterns"):
-                continue
-
-            self.add_player()
-            player_idx = len(self.players_data) - 1
-
-            if self.players_data[player_idx]['attempts']:
-                 player_data = self.players_data[player_idx]
-                 attempt_data = player_data['attempts'].pop(0)
-                 attempt_data['frame'].destroy()
-
-            for pattern in player_data_from_ai["patterns"]:
-                pattern = pattern.strip().upper()
-                if len(pattern) == 5:
-                    self.add_community_attempt(player_idx, initial_pattern=pattern)
-
-# ... (Rest of the UI helper methods like cycle_color, etc. would be here) ...
-# For brevity, I'm omitting the full UI code that was already present.
-# The key changes are in the async loading and solving.
-
+        # Update suggestions
+        suggestions = self.personal_solver.get_best_next_guess(5)
+        sugg_text = "\n".join([f"{i}. {word.upper():<8} (Score: {score:.3f})" for i, (word, score) in enumerate(suggestions, 1)])
+        self._update_text_widget(self.personal_suggestions_text, sugg_text)
+        
+        messagebox.showinfo("Prefilter Complete", f"Personal solver's word list has been updated with the {remaining_count} live candidates.")
 
 def main():
     root = tk.Tk()

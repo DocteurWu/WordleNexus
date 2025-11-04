@@ -12,12 +12,18 @@ import math
 import hashlib
 import time
 import logging
+import threading
 from collections import Counter, defaultdict
-from concurrent.futures import ProcessPoolExecutor, as_completed
+from concurrent.futures import ProcessPoolExecutor, as_completed, CancelledError
 from functools import partial, lru_cache
 from typing import List, Dict, Tuple, Set, Optional
 from dataclasses import dataclass, field
 from datetime import datetime
+
+def init_worker(cache_data):
+    """Initializer for multiprocessing pool to set the cache."""
+    _player_possible_sequence_lax.cache = cache_data
+    _player_possible_sequence_strict.cache = cache_data
 
 # =========================
 # 0. Configuration & Logging
@@ -387,7 +393,6 @@ def _player_possible_sequence_lax(secret: str, pats_tuple: Tuple[str, ...]) -> b
     
     return all(p in m for p in pats)
 
-@lru_cache(maxsize=20000)
 def _player_possible_sequence_strict(secret: str, pats_tuple: Tuple[str, ...]) -> bool:
     """Strict verification: coherent sequence possible"""
     pats = list(pats_tuple)
@@ -621,25 +626,34 @@ class WordleSolver:
     def _set_current_cache_for_lru(self):
         """Attach cache to verification functions"""
         _player_possible_sequence_lax.cache_clear()
-        _player_possible_sequence_strict.cache_clear()
         _player_possible_sequence_lax.cache = self.cache
         _player_possible_sequence_strict.cache = self.cache
         logger.debug("LRU cache reset")
     
-    def solve(self, players_grids: List[List[str]], 
-             personal_attempts: List[Dict]) -> str:
+    def solve(self, players_grids: List[List[str]],
+              personal_attempts: List[Dict],
+              run_strict: bool = True,
+              candidates_to_check: Optional[set] = None,
+              progress_callback=None,
+              stop_event: Optional[threading.Event] = None) -> Tuple[str, set]:
         """
-        Solve Wordle with detailed logging
+        Solve Wordle with detailed logging.
+        Can run in two modes: lax only or full (lax + strict).
         
         Args:
-            players_grids: List of player grids (patterns)
-            personal_attempts: List of personal attempts {guess, pattern}
+            players_grids: List of player grids (patterns).
+            personal_attempts: List of personal attempts {guess, pattern}.
+            run_strict: If False, only lax filtering is performed.
+            candidates_to_check: Optional set of words to start with.
+            stop_event: Optional threading.Event to gracefully stop the analysis.
         
         Returns:
-            Formatted string with results
+            A tuple containing:
+            - Formatted string with results.
+            - A set of candidate words (lax or strict).
         """
         logger.info("\n" + "="*60)
-        logger.info("NEW SOLVE")
+        logger.info(f"NEW SOLVE (Strict Mode: {run_strict})")
         logger.info("="*60)
         
         solve_start = time.time()
@@ -647,48 +661,43 @@ class WordleSolver:
         # Input validation
         if not players_grids and not personal_attempts:
             logger.warning("No data provided")
-            return "No data entered."
+            return "No data entered.", set()
         
         logger.info(f"Players: {len(players_grids)}, Personal attempts: {len(personal_attempts)}")
         
-        # Phase 1: Community lax filtering
+        # --- Phase 1: Lax Filtering ---
         logger.info("\n--- Phase 1: Lax Filtering ---")
         phase_start = time.time()
         
-        common_candidates = set(self.answers)
+        if candidates_to_check is None:
+            common_candidates = set(self.answers)
+        else:
+            common_candidates = candidates_to_check
+            
         logger.debug(f"Initial candidates: {len(common_candidates)}")
         
         if players_grids:
-            # Sort by number of constraints (optimization)
-            sorted_grids = sorted(
-                players_grids,
-                key=lambda g: sum(p.count(GREEN) for p in g),
-                reverse=True
-            )
-            
-            for idx, player_grids in enumerate(sorted_grids, 1):
+            sorted_grids = sorted(players_grids, key=lambda g: sum(p.count(GREEN) for p in g), reverse=True)
+            for idx, player_grid in enumerate(sorted_grids, 1):
                 before = len(common_candidates)
                 common_candidates = {
                     secret for secret in common_candidates
-                    if _player_possible_sequence_lax(secret, tuple(player_grids))
+                    if _player_possible_sequence_lax(secret, tuple(player_grid))
                 }
                 after = len(common_candidates)
-                logger.debug(f"Player {idx}: {before} → {after} candidates")
-                
+                logger.debug(f"Player {idx}: {before} -> {after} candidates")
                 if not common_candidates:
                     logger.warning(f"No candidates after player {idx}")
                     break
-                
-                # Early exit if unique solution
                 if len(common_candidates) == 1:
                     logger.info(f"✓ Unique solution found after player {idx}")
                     break
-        
+
         phase1_time = time.time() - phase_start
         stats.log_phase("Phase1_Lax", phase1_time)
         logger.info(f"Phase 1 completed in {phase1_time:.3f}s: {len(common_candidates)} candidates")
-        
-        # Phase 1.5: Personal attempts filtering
+
+        # --- Phase 1.5: Personal Attempts ---
         if personal_attempts and common_candidates:
             logger.info("\n--- Phase 1.5: Personal Attempts ---")
             phase_start = time.time()
@@ -705,40 +714,100 @@ class WordleSolver:
             
             phase15_time = time.time() - phase_start
             stats.log_phase("Phase1.5_Personal", phase15_time)
-            logger.info(f"Phase 1.5 completed in {phase15_time:.3f}s: {before} → {after} candidates")
-        
+            logger.info(f"Phase 1.5 completed in {phase15_time:.3f}s: {before} -> {after} candidates")
+
         if not common_candidates:
             logger.error("❌ No candidates found")
-            return "❌ No possible words found."
-        
-        # Phase 2: Strict validation
-        logger.info("\n--- Phase 2: Strict Validation ---")
+            return "❌ No possible words found.", set()
+
+        # --- Conditional Strict Validation ---
+        if not run_strict:
+            total_time = time.time() - solve_start
+            logger.info(f"\n✓ Lax solve in {total_time:.3f}s")
+            return self._format_lax_results(common_candidates, total_time), common_candidates
+
+        # --- Phase 2: Iterative Strict Validation ---
+        logger.info("\n--- Phase 2: Iterative Strict Validation ---")
         phase_start = time.time()
         
-        candidates_info = []
-        
+        strict_candidates = set(common_candidates)
+        # (The rest of the strict validation logic remains the same...)
         if players_grids:
-            for word in common_candidates:
-                strict_count = sum(
-                    _player_possible_sequence_strict(word, tuple(p))
-                    for p in players_grids
-                )
-                if strict_count > 0:
-                    candidates_info.append((word, strict_count))
+            num_players = len(players_grids)
+            sorted_grids = sorted(players_grids, key=lambda g: (sum(p.count(GREEN) for p in g), sum(p.count(YELLOW) for p in g)), reverse=True)
             
-            logger.debug(f"Strict candidates: {len(candidates_info)}")
-        else:
-            candidates_info = [(w, 1) for w in common_candidates]
+            for idx, player_grid in enumerate(sorted_grids, 1):
+                if not strict_candidates:
+                    logger.warning("No candidates left for strict validation.")
+                    break
+
+                before = len(strict_candidates)
+                if progress_callback:
+                    progress_callback({'type': 'player_start', 'player_idx': idx, 'num_players': num_players, 'num_candidates': before})
+                
+                logger.info(f"Strict validation for Player {idx}/{num_players} on {before} candidates...")
+                
+                player_start_time = time.time()
+                validated_this_round = set()
+                
+                with ProcessPoolExecutor(initializer=init_worker, initargs=(self.cache,)) as executor:
+                    logger.info(f"Using up to {executor._max_workers} cores for strict validation.")
+                    futures = {executor.submit(_player_possible_sequence_strict, word, tuple(player_grid)): word for word in strict_candidates}
+                    
+                    processed_count = 0
+                    for future in as_completed(futures):
+                        if stop_event and stop_event.is_set():
+                            for f in futures:
+                                f.cancel()
+                            raise InterruptedError("Analysis stopped by user.")
+
+                        processed_count += 1
+                        word = futures[future]
+                        try:
+                            is_valid = future.result()
+                        except CancelledError:
+                            continue # Skip cancelled futures
+
+                        if progress_callback:
+                            progress_callback({'type': 'word_validated', 'word': word, 'is_valid': is_valid})
+                        if is_valid:
+                            validated_this_round.add(word)
+
+                        if processed_count % 5 == 0 and processed_count < before and before > 20:
+                            elapsed = time.time() - player_start_time
+                            if elapsed > 0.1:
+                                words_per_sec = processed_count / elapsed
+                                remaining = before - processed_count
+                                eta = remaining / words_per_sec
+                                if progress_callback:
+                                    progress_callback({
+                                        'type': 'player_progress',
+                                        'player_idx': idx,
+                                        'current': processed_count,
+                                        'total': before,
+                                        'pct': (processed_count / before) * 100,
+                                        'eta_m': int(eta // 60),
+                                        'eta_s': int(eta % 60)
+                                    })
+
+                strict_candidates = validated_this_round
+                after = len(strict_candidates)
+                logger.info(f"  -> Player {idx} results: {before} -> {after} candidates")
+                if progress_callback:
+                    progress_callback({'type': 'player_end', 'player_idx': idx, 'num_candidates_after': after})
+
+        num_players_for_score = len(players_grids) if players_grids else 1
+        candidates_info = [(word, num_players_for_score) for word in strict_candidates]
         
         phase2_time = time.time() - phase_start
-        stats.log_phase("Phase2_Strict", phase2_time)
+        stats.log_phase("Phase2_Strict_Iterative", phase2_time)
         logger.info(f"Phase 2 completed in {phase2_time:.3f}s: {len(candidates_info)} validated candidates")
         
         if not candidates_info:
             logger.error("❌ No candidates after strict validation")
-            return "❌ No valid words found after strict validation."
-        
-        # Phase 3: Scoring
+            return "❌ No valid words found after strict validation.", set()
+
+        # --- Phase 3: Scoring ---
         logger.info("\n--- Phase 3: Scoring ---")
         phase_start = time.time()
         
@@ -748,7 +817,6 @@ class WordleSolver:
         stats.log_phase("Phase3_Scoring", phase3_time)
         logger.info(f"Phase 3 completed in {phase3_time:.3f}s")
         
-        # Result logging
         total_time = time.time() - solve_start
         stats.log_solve(total_time, len(candidates_info))
         
@@ -756,7 +824,7 @@ class WordleSolver:
         logger.info(f"Top 3: {', '.join(w.upper() for w, *_ in ranked[:3])}")
         logger.info("="*60 + "\n")
         
-        return self._format_results(ranked, players_grids, total_time)
+        return self._format_results(ranked, players_grids, total_time), set(w for w, *_ in ranked)
     
     def _format_results(self, ranked: List[Tuple], 
                        players_grids: List[List[str]], 
@@ -768,7 +836,7 @@ class WordleSolver:
             "="*85,
             f"Solve time: {solve_time:.3f}s | Candidates analyzed: {len(ranked)}",
             "",
-            f"{'Rank':<6}{'Word':<10}{'Score':<9}{'Strict%':<10}{'Perfect':<9}{'Freq':<8}{'Entropy':<9}{'Tries'}",
+            f"{ 'Rank':<6}{'Word':<10}{'Score':<9}{'Strict%':<10}{'Perfect':<9}{'Freq':<8}{'Entropy':<9}{'Tries'}",
             "-"*85
         ]
         
@@ -792,6 +860,21 @@ class WordleSolver:
                 "="*85
             ])
         
+        return "\n".join(lines)
+
+    def _format_lax_results(self, candidates: set, solve_time: float) -> str:
+        """Format lax results readably"""
+        lines = [
+            "\n" + "="*85,
+            "🎯 LAX FILTERING RESULTS",
+            "="*85,
+            f"Solve time: {solve_time:.3f}s | Lax candidates found: {len(candidates)}",
+            "",
+            "Some candidates:",
+            ", ".join(sorted(list(candidates))[:50])
+        ]
+        if len(candidates) > 50:
+            lines[-1] += "..."
         return "\n".join(lines)
     
     def suggest_opening_words(self, top_n: int = 10) -> List[Tuple[str, float]]:
