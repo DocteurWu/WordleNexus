@@ -64,11 +64,3 @@ This mode is for finding the single word that fits multiple players' game grids.
 - **Suggest Openers**: Shows a list of the statistically best opening words.
 - **Show Stats**: Displays performance statistics for the solver session.
 
-## Configuration
-
-Before using the screenshot import, you must edit `config.ini` and add your Gemini API key:
-
-```ini
-[API]
-GEMINI_API_KEY = "YOUR_API_KEY_HERE"
-```
