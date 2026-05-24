@@ -82,7 +82,7 @@ Ce script créera les fichiers `feedback_matrix_uint8.npy` et `word_index_maps.p
 
 ---
 
-## Utilisation
+## Utilisation :
 
 ### Mode Graphique (Recommandé)
 Pour démarrer l'application avec l'interface graphique Tkinter :
