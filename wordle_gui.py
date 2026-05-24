@@ -20,8 +20,6 @@ from solver import (
     GREEN,
 )
 
-analyze_wordle_screenshots = None
-
 
 class WordleGUI:
     def __init__(self, root):
@@ -351,9 +349,7 @@ class WordleGUI:
             state=tk.DISABLED,
         )
         self.stop_analysis_button.pack(side=tk.LEFT, padx=5)
-        ttk.Button(
-            controls_frame, text="Import Screenshots", command=self.import_screenshots
-        ).pack(side=tk.LEFT, padx=5)
+
         ttk.Button(controls_frame, text="Clear All", command=self.clear_community).pack(
             side=tk.LEFT, padx=5
         )
@@ -915,12 +911,6 @@ class WordleGUI:
             self.remove_player(i)
         self.add_player()
         self._update_text_widget(self.community_results_text, "")
-
-    def import_screenshots(self):
-        messagebox.showinfo(
-            "Unavailable",
-            "Screenshot import requires the 'gemini_analyzer' module (Google Gemini API), which is not installed.",
-        )
 
     def prefilter_with_community(self):
         if not self.personal_solver:

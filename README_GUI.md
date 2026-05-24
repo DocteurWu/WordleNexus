@@ -67,7 +67,6 @@ Ce mode permet de trouver la solution partagée par un groupe d'amis ou de joueu
   - `[OFF]` (Par défaut) : L'analyse considère que tous les candidats restants ont la même probabilité d'être le mot solution.
   - `[ON]` : Utilise la fréquence linguistique des lettres pour attribuer une probabilité d'apparition pondérée aux candidats.
 - **Stop Analysis** : Permet d'interrompre instantanément une recherche longue.
-- **Import Screenshots** : Utilise l'intelligence artificielle Google Gemini pour analyser des captures d'écran de Wordle et préremplir automatiquement les grilles des joueurs en quelques secondes.
 
 ---
 
