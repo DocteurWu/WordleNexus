@@ -1,227 +1,149 @@
-# Wordle Solver Optimized v2.0 - Complete Guide
+# Solveur Wordle Optimisé v3.0 - Guide Complet
 
-## Overview
+## Aperçu
 
-This is a sophisticated Wordle solving application that provides multiple solving modes with advanced algorithms, AI-powered image analysis, and comprehensive user interfaces. It supports community solving (analyzing multiple players' patterns), personal solving (step-by-step individual guidance), and AI-powered screenshot analysis.
+Cette application est un solveur Wordle hautement sophistiqué doté d'algorithmes avancés de théorie de l'information, d'une analyse d'images par IA et d'interfaces utilisateur complètes (graphique et console). Il propose une résolution communautaire (analyse simultanée des grilles de plusieurs joueurs), une résolution personnelle (guidage pas à pas) et une intégration de capture d'écran via l'API Gemini.
 
-## Features
+La version 3.0 introduit le **Solveur Exact basé sur une matrice de feedback précalculée**, réduisant drastiquement le temps d'évaluation des partitions à un temps constant $O(1)$, ainsi que des stratégies décisionnelles optimisées comme **Proba Crisp** et **Une Pierre Deux Coups**.
 
-### 🔍 **Multi-Mode Solving**
-- **Community Solving**: Analyze multiple players' Wordle patterns simultaneously
-- **Personal Solving**: Step-by-step guidance for individual Wordle games
-- **Pre-filtering**: Use community data to narrow down personal solver candidates
-- **Opening Word Suggestions**: Optimized first guess recommendations
+---
 
-### 🤖 **AI Integration**
-- **Screenshot Analysis**: Import Wordle screenshots using Google Gemini AI
-- **Automatic Pattern Extraction**: AI analyzes images and extracts color patterns
-- **Multi-image Processing**: Batch processing of multiple screenshots
+## Fonctionnalités Clés
 
-### 📊 **Advanced Algorithms**
-- **Multi-Criteria Scoring**: Comprehensive scoring system with weighted factors
-- **Pattern Cache**: Pre-computed feedback patterns for optimal performance
-- **Lax & Strict Validation**: Two-phase constraint verification
-- **Entropy-Based Suggestions**: Information gain optimization
+### 🔍 Multi-Mode de Résolution
+- **Solveur Communautaire** : Analyse les grilles de plusieurs joueurs pour en extraire le mot solution commun le plus probable.
+- **Solveur Personnel** : Fournit une assistance pas à pas et en temps réel pour vos parties individuelles.
+- **Pré-filtrage Communautaire** : Permet d'injecter des données communautaires pour restreindre instantanément l'espace initial de recherche personnelle.
+- **Suggestions d'Ouverture** : Recommande les meilleurs premiers mots d'après des critères statistiques stricts.
 
-### 🎨 **Modern GUI**
-- **Dual-Mode Interface**: Personal + Community solvers in one window
-- **Visual Color Selection**: Clickable color buttons for pattern entry
-- **Real-time Statistics**: Live status updates and performance metrics
-- **Asynchronous Loading**: Non-blocking solver initialization
+### 🤖 Analyse par IA Intégrée
+- **Extraction automatique de motifs** : Analysez des captures d'écran de Wordle grâce à l'IA Google Gemini.
+- **Traitement par lots** : Importez simultanément plusieurs images pour alimenter instantanément le solveur communautaire.
 
-### 📈 **Performance & Analytics**
-- **Comprehensive Logging**: Detailed performance tracking
-- **Statistics Collection**: Solve times, cache performance, success rates
-- **Parallel Processing**: Multi-threaded pattern cache generation
-- **Compression**: Efficient storage of precomputed data
+### 📊 Algorithmes Mathématiques et Théorie de l'Information
+- **Solveur ERS Exact (Expected Remaining Size)** : Évalue instantanément le pouvoir de partitionnement de l'intégralité des 14 855 essais autorisés contre les candidats restants grâce à une matrice numpy stockée en mémoire.
+- **Optimisation "Une Pierre Deux Coups"** : Détecte s'il existe un mot candidat valide dont le pouvoir de partition (ERS) est supérieur ou égal au meilleur mot d'essai global. Jouer ce candidat permet d'avoir une chance de trouver le mot secret en un coup, tout en conservant la même efficacité moyenne de réduction.
+- **Entropie de Shannon** : Maximisation de l'information théorique moyenne pour diviser au mieux l'espace de recherche restant :
+  $$H(X) = - \sum_{i} p(x_i) \log_2 p(x_i)$$
+- **Scoring Multicritères** : Système de pondération dynamique combinant le ratio de validation strict, le bonus parfait, la rareté du pattern ("tightness"), la cohérence temporelle, la difficulté, la fréquence de lettre et l'entropie.
 
-## System Architecture
+### 🎨 Interface Graphique Moderne (GUI)
+- **Interface à Double Paneau** : Résolution personnelle à gauche, résolution communautaire à droite.
+- **Indicateurs Visuels Interactifs** : Boutons de couleur cliquables (Gris ⬛ → Jaune 🟨 → Vert 🟩) pour saisir les motifs.
+- **Affichage en Temps Réel** : Suivi asynchrone des analyses, des mots traités et des statistiques de performance.
+- **Défilement et Transitions Fluides** : Raccourcis clavier pour naviguer d'un champ à l'autre et gestion de la molette de souris.
 
-### Core Components
-- **WordleSolver**: Main solver engine with 3-phase processing (lax filtering → strict validation → advanced scoring)
-- **PersonalSolver**: Interactive mode for individual Wordle guidance
-- **AdvancedScorer**: Multi-criteria scoring system with entropy calculations
-- **SolverLogger**: Comprehensive logging and statistics
+---
 
-### Data
-- **2,309** valid Wordle answers
-- **14,855** allowed guess words  
-- **Pre-computed pattern cache**: Over 2GB of optimized pattern data
+## Mathématiques & Optimisation
 
-## Installation & Setup
+### 1. Expected Remaining Size (ERS)
+L'ERS mesure la taille moyenne attendue de l'espace de recherche restant après avoir joué un mot d'essai $g$. La formule de calcul est :
 
-### Prerequisites
-- Python 3.6+
-- Required packages: `google-generativeai`, `Pillow`, `tkinter`
+$$ERS(g) = \frac{\sum_{p} |S_{g, p}|^2}{|C|}$$
 
-### Installation
+Où :
+- $|C|$ est le nombre total de candidats actuellement possibles.
+- $p$ représente l'un des 243 motifs de feedback possibles ($3^5$).
+- $|S_{g, p}|$ désigne le sous-ensemble de candidats dans $C$ qui renverraient le feedback $p$ si le mot secret était évalué avec l'essai $g$.
+
+Le solveur cherche à **minimiser** l'ERS pour réduire l'espace des solutions le plus rapidement possible.
+
+### 2. Matrice de Feedback Précalculée
+Au lieu de recalculer le feedback pour chaque couple (essai, candidat) en $O(5)$ à la volée, le module `ExactSolver` charge en mémoire :
+- `feedback_matrix_uint8.npy` : Une matrice bidimensionnelle globale de taille $(14855, 2309)$ stockée sous forme d'entiers non-signés de 8 bits.
+- `word_index_maps.pkl` : Les dictionnaires d'indexation bijectifs entre les chaînes de caractères et les lignes/colonnes de la matrice.
+
+Grâce à cela, le partitionnement et le calcul de l'ERS d'un mot s'effectuent via des opérations vectorisées extrêmement rapides sous **NumPy**.
+
+### 3. Mode "Proba Crisp"
+Par défaut, le solveur considère que tous les candidats restants ont une probabilité uniforme d'être la solution. L'activation du mode **Proba Crisp** applique une pondération probabiliste non-uniforme sur les candidats restants en se basant sur la fréquence théorique des lettres dans la langue :
+- Les mots contenant des lettres plus courantes reçoivent une probabilité d'occurrence plus élevée.
+- Cela affine les calculs statistiques et priorise les suggestions les plus naturelles pour un joueur humain.
+
+---
+
+## Installation et Configuration
+
+### Prérequis
+- Python 3.8 ou supérieur
+- Bibliothèque graphique Tkinter (généralement incluse avec Python)
+- Packages requis : `numpy`, `google-generativeai`, `Pillow`
+
+### Installation des Dépendances
+Installez les packages nécessaires via `pip` :
 ```bash
-pip install google-generativeai Pillow
+pip install numpy google-generativeai Pillow
 ```
 
-### API Configuration
-1. Get a Google Gemini API key from [Google AI Studio](https://aistudio.google.com/)
-2. Create a file named `config.ini` in the root directory of the project.
-3. Add the following content to `config.ini`, replacing `"your_api_key_here"` with your actual API key:
+### Génération de la Matrice Exacte
+Pour bénéficier de la puissance et de la rapidité du solveur exact $O(1)$, vous devez générer la matrice de feedback. Exécutez la commande suivante (cette opération dure entre 30 et 60 secondes et ne doit être lancée **qu'une seule fois**) :
+```bash
+python build_feedback_matrix.py
+```
+Ce script créera les fichiers `feedback_matrix_uint8.npy` et `word_index_maps.pkl` dans le dossier `data/`.
+
+### Configuration de l'API Gemini (Optionnel - Pour l'analyse d'images)
+1. Obtenez une clé API gratuite sur [Google AI Studio](https://aistudio.google.com/).
+2. Créez un fichier `config.ini` à la racine du projet.
+3. Ajoutez-y le contenu sinister en remplaçant la clé générique par votre clé API :
 ```ini
 [API]
-GEMINI_API_KEY = "your_api_key_here"
+GEMINI_API_KEY = "votre_cle_api_ici"
 ```
 
-## How to Run
+---
 
-To get started quickly, follow these steps:
+## Utilisation
 
-1.  **Install dependencies**: Ensure you have Python 3.6+ and the required packages installed.
-2.  **Configure API Key**: Set up your Google Gemini API key in `config.ini` as described above.
-3.  **Launch GUI**: Run the graphical interface using `python run_gui.py`.
-4.  **Explore Modes**: Choose between Community Solver, Personal Solver, or use AI-powered screenshot analysis.
-
-
-
-## Usage
-
-### GUI Mode (Recommended)
+### Mode Graphique (Recommandé)
+Pour démarrer l'application avec l'interface graphique Tkinter :
 ```bash
 python run_gui.py
 ```
 
-#### Community Solver
-1. **Add players**: Click "Add Player" for each Wordle player
-2. **Enter patterns**: Input each player's pattern sequence (e.g., 🟩🟨⬛🟨⬛)
-3. **Add attempts**: Use "Add Attempt" button for multiple attempts per player
-4. **Solve**: Click "Solve Community" for analysis
-5. **Import screenshots**: Use "Import Screenshots" for AI-powered pattern extraction
-
-#### Personal Solver
-1. **Enter your guess**: Type 5-letter word in the guess field
-2. **Set pattern**: Click color buttons (Gray→Yellow→Green→Gray cycle)
-3. **Submit**: Click "Submit Attempt" 
-4. **Get suggestions**: View best next guesses and remaining candidates
-5. **Pre-filter**: Use community data to narrow your options
-
-### Command Line Mode
+### Mode Console (CLI)
+Le solveur propose également plusieurs outils interactifs en ligne de commande :
 ```bash
-# Interactive mode
+# Lancer le solveur communautaire interactif
 python solver.py --interactive
 
-# Personal solver
+# Lancer le solveur personnel
 python solver.py --personal
 
-# Opening words
+# Afficher les meilleurs mots d'ouverture statistiques
 python solver.py --opening
 
-# Statistics
+# Afficher les statistiques de performance de la session
 python solver.py --stats
 ```
 
-## Development
+---
 
-To set up a development environment, consider the following:
+## Structure des Fichiers
 
--   **Code Structure**: The project is organized into `run_gui.py` (GUI launcher), `wordle_gui.py` (graphical interface), `solver.py` (core logic), and `gemini_analyzer.py` (AI integration).
--   **Logging**: Detailed logs are generated in the `logs/` directory, which can be helpful for debugging and performance analysis.
--   **Testing**: (Add details about testing if available, otherwise mention future plans or how to manually test)
-
-
-
-## Technical Details
-
-### Scoring Algorithm
-The system uses weighted scoring across multiple factors:
-- **strict_ratio** (42%): How many players the word works for
-- **perfect_bonus** (20%): Bonus for working for all players  
-- **tightness** (15%): Pattern rarity scoring
-- **coherence** (10%): Temporal consistency
-- **difficulty** (5%): Based on average attempts
-- **letter_frequency** (5%): Common letters preference
-- **entropy** (3%): Information gain
-
-### Validation Process
-1. **Lax Filtering**: Quick elimination using pattern existence
-2. **Strict Validation**: Sequence coherence verification  
-3. **Advanced Scoring**: Multi-criteria ranking
-
-### Performance Optimizations
-- Parallel pattern cache building
-- LRU caching for repeated calculations
-- Compressed cache storage
-- Asynchronous UI operations
-- Early exit optimizations
-
-## File Structure
 ```
-wordle_solver/
-├── run_gui.py              # GUI launcher
-├── wordle_gui.py           # Graphical interface
-├── solver.py              # Core solver engine
-├── gemini_analyzer.py     # AI image analysis
-├── config.ini            # Configuration settings
-├── README.md             # This file
-└── data/
-    ├── answers.txt       # Valid solution words
-    ├── allowed_guesses.txt # All allowed guesses
-    └── pattern_cache.pkl.gz # Precomputed patterns
+Wordle/
+├── run_gui.py                # Lanceur principal de la GUI
+├── wordle_gui.py             # Code de l'interface graphique Tkinter
+├── solver.py                 # Moteur de résolution principal & ExactSolver
+├── gemini_analyzer.py        # Analyse de captures d'écran via l'IA Gemini
+├── build_feedback_matrix.py  # Script de génération de la matrice numpy
+├── config.ini                # Clé API et configurations du solveur
+├── RAPPORT_SCIENTIFIQUE.md   # Documentation scientifique approfondie
+├── README.md                 # Ce fichier
+├── data/
+│   ├── answers.txt           # Liste des 2 309 mots solutions valides
+│   ├── allowed_guesses.txt   # Liste des 14 855 tentatives autorisées
+│   ├── pattern_cache.pkl     # Cache de patterns standardisé
+│   ├── feedback_matrix_uint8.npy # Matrice numpy précalculée pour le solveur exact
+│   └── word_index_maps.pkl   # Index de correspondance des mots pour NumPy
 └── logs/
-    └── solver_*.log      # Performance logs
+    └── solver_*.log          # Fichiers de log détaillés
 ```
 
-## Algorithms Explained
+---
 
-### Pattern Feedback
-- **Phase 1**: Green (exact match) processing
-- **Phase 2**: Yellow (present elsewhere) processing
-- **Counter-based**: Handles duplicate letters correctly
+## Contribution & Licence
 
-### Constraint Verification
-- **Lax**: Checks if patterns exist for each attempt
-- **Strict**: Ensures temporal sequence validity
-- **Coherence**: Validates progression rules (greens can't become blanks, etc.)
-
-### Multi-Criteria Scoring
-Combined score = Σ(weight × factor) for all criteria
-
-## Use Cases
-
-### Community Analysis
-- Multiple players sharing their Wordle results
-- Finding the most probable shared solution
-- Handling inconsistent patterns or cheating attempts
-
-### Personal Play
-- Step-by-step guidance for your own Wordle
-- Optimal next guess suggestions
-- Remaining candidate tracking
-
-### Competitive Play
-- Analyzing other players' strategies
-- Understanding solution difficulty
-- Opening word optimization
-
-## Performance & Statistics
-
-The system tracks:
-- Solve times and efficiency
-- Cache hit/miss rates
-- Phase-by-phase performance
-- Overall usage statistics
-
-## Troubleshooting
-
-### Common Issues
-- **API Key**: Ensure Gemini API key is properly configured
-- **Cache**: First run may take 1-2 minutes to build pattern cache
-- **Memory**: Large word lists require ~2GB RAM for optimal performance
-
-### Screenshot Analysis
-- Use clear, high-contrast Wordle images
-- Avoid screenshots with additional UI elements
-- Support for various Wordle-style games
-
-## Contributing
-
-The project is designed with extensibility in mind. Feel free to contribute via pull requests or issue reports.
-
-## License
-
-This project is open source and available under the [MIT License](LICENSE).
+Ce projet est distribué sous licence open-source. Les contributions sous forme de pull requests, d'optimisations mathématiques ou de rapports d'anomalies sont les bienvenues.
