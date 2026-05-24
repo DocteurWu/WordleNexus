@@ -3,7 +3,6 @@
 ## Aperçu
 
 Cette application est un solveur Wordle hautement sophistiqué doté d'algorithmes avancés de théorie de l'information et d'interfaces utilisateur complètes (graphique et console). Il propose une résolution communautaire (analyse simultanée des grilles de plusieurs joueurs) et une résolution personnelle (guidage pas à pas).
-
 La version 3.0 introduit le **Solveur Exact basé sur une matrice de feedback précalculée**, réduisant drastiquement le temps d'évaluation des partitions à un temps constant $O(1)$, ainsi que des stratégies décisionnelles optimisées comme **Proba Crisp** et **Une Pierre Deux Coups**.
 
 ---
@@ -15,6 +14,7 @@ La version 3.0 introduit le **Solveur Exact basé sur une matrice de feedback pr
 - **Solveur Personnel** : Fournit une assistance pas à pas et en temps réel pour vos parties individuelles.
 - **Pré-filtrage Communautaire** : Permet d'injecter des données communautaires pour restreindre instantanément l'espace initial de recherche personnelle.
 - **Suggestions d'Ouverture** : Recommande les meilleurs premiers mots d'après des critères statistiques stricts.
+
 
 ### 📊 Algorithmes Mathématiques et Théorie de l'Information
 - **Solveur ERS Exact (Expected Remaining Size)** : Évalue instantanément le pouvoir de partitionnement de l'intégralité des 14 855 essais autorisés contre les candidats restants grâce à une matrice numpy stockée en mémoire.
@@ -78,6 +78,7 @@ Pour bénéficier de la puissance et de la rapidité du solveur exact $O(1)$, vo
 python build_feedback_matrix.py
 ```
 Ce script créera les fichiers `feedback_matrix_uint8.npy` et `word_index_maps.pkl` dans le dossier `data/`.
+
 
 ---
 
