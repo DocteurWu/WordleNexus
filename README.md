@@ -2,8 +2,7 @@
 
 ## Aperçu
 
-Cette application est un solveur Wordle hautement sophistiqué doté d'algorithmes avancés de théorie de l'information, d'une analyse d'images par IA et d'interfaces utilisateur complètes (graphique et console). Il propose une résolution communautaire (analyse simultanée des grilles de plusieurs joueurs), une résolution personnelle (guidage pas à pas) et une intégration de capture d'écran via l'API Gemini.
-
+Cette application est un solveur Wordle hautement sophistiqué doté d'algorithmes avancés de théorie de l'information et d'interfaces utilisateur complètes (graphique et console). Il propose une résolution communautaire (analyse simultanée des grilles de plusieurs joueurs) et une résolution personnelle (guidage pas à pas)
 La version 3.0 introduit le **Solveur Exact basé sur une matrice de feedback précalculée**, réduisant drastiquement le temps d'évaluation des partitions à un temps constant $O(1)$, ainsi que des stratégies décisionnelles optimisées comme **Proba Crisp** et **Une Pierre Deux Coups**.
 
 ---
@@ -16,9 +15,6 @@ La version 3.0 introduit le **Solveur Exact basé sur une matrice de feedback pr
 - **Pré-filtrage Communautaire** : Permet d'injecter des données communautaires pour restreindre instantanément l'espace initial de recherche personnelle.
 - **Suggestions d'Ouverture** : Recommande les meilleurs premiers mots d'après des critères statistiques stricts.
 
-### 🤖 Analyse par IA Intégrée
-- **Extraction automatique de motifs** : Analysez des captures d'écran de Wordle grâce à l'IA Google Gemini.
-- **Traitement par lots** : Importez simultanément plusieurs images pour alimenter instantanément le solveur communautaire.
 
 ### 📊 Algorithmes Mathématiques et Théorie de l'Information
 - **Solveur ERS Exact (Expected Remaining Size)** : Évalue instantanément le pouvoir de partitionnement de l'intégralité des 14 855 essais autorisés contre les candidats restants grâce à une matrice numpy stockée en mémoire.
@@ -68,12 +64,12 @@ Par défaut, le solveur considère que tous les candidats restants ont une proba
 ### Prérequis
 - Python 3.8 ou supérieur
 - Bibliothèque graphique Tkinter (généralement incluse avec Python)
-- Packages requis : `numpy`, `google-generativeai`, `Pillow`
+- Packages requis : `numpy`, `Pillow`
 
 ### Installation des Dépendances
 Installez les packages nécessaires via `pip` :
 ```bash
-pip install numpy google-generativeai Pillow
+pip install numpy Pillow
 ```
 
 ### Génération de la Matrice Exacte
@@ -83,14 +79,6 @@ python build_feedback_matrix.py
 ```
 Ce script créera les fichiers `feedback_matrix_uint8.npy` et `word_index_maps.pkl` dans le dossier `data/`.
 
-### Configuration de l'API Gemini (Optionnel - Pour l'analyse d'images)
-1. Obtenez une clé API gratuite sur [Google AI Studio](https://aistudio.google.com/).
-2. Créez un fichier `config.ini` à la racine du projet.
-3. Ajoutez-y le contenu sinister en remplaçant la clé générique par votre clé API :
-```ini
-[API]
-GEMINI_API_KEY = "votre_cle_api_ici"
-```
 
 ---
 
